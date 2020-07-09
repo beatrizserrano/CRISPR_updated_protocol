@@ -1,0 +1,219 @@
+---
+title: "Data analysis of the biological replicates"
+output:
+  html_document: default
+---
+
+<br>
+
+This notebook analyses the biological replicates and generates a box plot with the copy number for different clones.
+
+<br>
+
+- Select values for global variables:
+
+    - *PLOIDY* indicates the ploidy of the cell line studied.
+    - *ASSAY*: 
+        - *dual_color*: two-fluorophores dPCR assay to assess specific or total number of integrations (first color) normalized against genomic DNA loading (second color).
+        - *dual_color_all_tag_only*: dual-fluorophore dPCR assay to assess total number of tag integrations in the target genome (first color) normalized against the genomic DNA amount (second color)
+        - *triple_color*: three-fluorophores based dPCR assay to assess at the same time specific and total number of integrations (first and second color) both normalized against the same DNA loading amount (third color).
+    - *CONTROL_LABELS*: substrings of the sample names indicating when a sample is a control.
+
+<br>
+
+```{r}
+PLOIDY <- 3
+
+# ASSAY <- "dual_color"
+# ASSAY <- "dual_color_all_tag_only"
+ASSAY <- "triple_color"
+
+CONTROL_LABELS <- c("U2OS", "Nup96", "Nup62", "NTC", "Comp", "wt", "HK-wt")
+```
+
+- Import functions.
+```{r}
+source("functions.R")
+```
+
+---
+
+### Pre-processing data
+
+---
+
+- Read input files for each assay. For each *Sample*, there are *Positives* and *Negatives*. *TargetType* encodes the type of sample (*Reference* and *Unknown* for TARGETS).
+
+```{r, echo=F}
+if (ASSAY == "dual_color")
+{
+  repGFP.filename <- file.path(getwd(), "data", "biologicalReplicates", "190517_allGFP_HK_Nup93-mEGFP_PRNP.csv")
+  repHDR.filename <- file.path(getwd(), "data", "biologicalReplicates", "190517_HDR_HK_Nup93-mEGFP_PRNP.csv")
+  repGFP <- read.csv(repGFP.filename, header=T, stringsAsFactors=F)
+  repHDR <- read.csv(repHDR.filename, header=T, stringsAsFactors=F) 
+  repGFP$Marker <- "GFP"
+  repHDR$Marker <- "HDR"
+  dataREPLICATES <- rbind(repGFP, repHDR)
+  rm(repGFP, repHDR)
+}
+
+if (ASSAY == "dual_color_all_tag_only")
+{
+  rep.filename <- file.path(getwd(), "data", "biologicalReplicates", "190917_allSNAP_U2OS_TPR-SNAP_PPP.csv")
+  dataREPLICATES <- read.csv(rep.filename, header=T, stringsAsFactors=F)
+  dataREPLICATES$Marker <- "SNAP"
+}
+
+if (ASSAY == "triple_color")
+{
+  rep.filename <- file.path(getwd(), "data", "biologicalReplicates", "200703_allGFP-HDR_U2OS-Nup93-mEGFP_PCRNP.csv")  
+  
+  inputData <- read.csv(rep.filename, header=T, stringsAsFactors=F)
+  # Get rid of concentrations ProcessedDilutionStock
+  inputData <- inputData[!(colnames(inputData) %in% grep("Concentration",colnames(inputData), value=T))]
+  inputData <- inputData[!(colnames(inputData) %in% grep("ProcessedDilutionStock",colnames(inputData), value=T))]
+    
+    
+  columns_metadata <- c(1:6)
+  columns_greenChannel <- grep("Green_Channel_", colnames(inputData))
+  columns_blueChannel <- grep("Blue_Channel_", colnames(inputData))
+  columns_redChannel <- grep("Red_Channel_", colnames(inputData))
+  
+  dataREPLICATES_green <- cbind(inputData[,columns_metadata], inputData[,columns_greenChannel]) 
+  
+  dataREPLICATES_green$Marker <- "GFP"
+  dataREPLICATES_green$TargetType <- "Unknown"
+  
+  dataREPLICATES_red_GFP <- cbind(inputData[,columns_metadata], inputData[,columns_redChannel]) 
+  dataREPLICATES_red_GFP$Marker <- "GFP"
+  dataREPLICATES_red_GFP$TargetType <- "Reference"
+  
+  dataREPLICATES_blue <- cbind(inputData[,columns_metadata], inputData[,columns_blueChannel]) 
+  dataREPLICATES_blue$Marker <- "HDR"
+  dataREPLICATES_blue$TargetType <- "Unknown"
+  
+  dataREPLICATES_red_HDR <- cbind(inputData[,columns_metadata], inputData[,columns_redChannel]) 
+  dataREPLICATES_red_HDR$Marker <- "HDR"
+  dataREPLICATES_red_HDR$TargetType <- "Reference"
+  
+  # Make colnames homogeneous
+  colnames(dataREPLICATES_green)[7] <- "SampleType"
+  colnames(dataREPLICATES_green)[8] <- "Positives"
+  colnames(dataREPLICATES_green)[9] <- "Negatives"
+  
+  colnames(dataREPLICATES_red_GFP)[7] <- "SampleType"
+  colnames(dataREPLICATES_red_GFP)[8] <- "Positives"
+  colnames(dataREPLICATES_red_GFP)[9] <- "Negatives"
+  
+  colnames(dataREPLICATES_blue)[7] <- "SampleType"
+  colnames(dataREPLICATES_blue)[8] <- "Positives"
+  colnames(dataREPLICATES_blue)[9] <- "Negatives"
+  
+  colnames(dataREPLICATES_red_HDR)[7] <- "SampleType"
+  colnames(dataREPLICATES_red_HDR)[8] <- "Positives"
+  colnames(dataREPLICATES_red_HDR)[9] <- "Negatives"  
+  
+  dataREPLICATES <- rbind(dataREPLICATES_green, dataREPLICATES_red_GFP, dataREPLICATES_blue, dataREPLICATES_red_HDR)
+  colnames(dataREPLICATES)[3] <- "Sample"
+}
+
+
+if (ASSAY=="dual_color" | ASSAY=="dual_color_all_tag_only")
+{
+  dataREPLICATES <- convertToLongFormat(dataREPLICATES)
+}
+
+dataREPLICATES[dataREPLICATES$TargetType=="Unknown",]$TargetType <- "TARGET"
+dataREPLICATES[dataREPLICATES$TargetType=="Reference",]$TargetType <- "REFERENCE"
+```
+
+- Remove control samples:
+
+```{r}
+samplesToDiscard <- unique(grep(paste(CONTROL_LABELS, collapse="|"), dataREPLICATES$Sample, value=TRUE))
+dataREPLICATES  <- dataREPLICATES[!(dataREPLICATES$Sample %in% samplesToDiscard),]
+```
+
+- Remove samples with 0 positives:
+
+```{r}
+dataREPLICATES <- dataREPLICATES[dataREPLICATES$Positives!=0,]
+```
+
+- Extract **Group** from the **Sample** name:
+
+```{r}
+dataREPLICATES <- extractGroup(dataREPLICATES, ASSAY)
+```
+
+- Number of samples for each marker and target type:
+
+```{r}
+knitr::kable(table(dataREPLICATES[c("Marker","TargetType")]))
+```
+
+---
+
+### Compute parameters
+
+---
+
+
+- Compute the **Negative Rate**:
+```{r}
+dataREPLICATES$NegativeRate <- computeNegativeRate(dataREPLICATES)
+```
+
+- Compute the **Ratio** and the **Confidence Interval**:
+```{r}
+dataREPLICATES <- computeConfidenceInterval(dataREPLICATES)
+```
+
+- Compute **Relative Error**:
+```{r}
+dataREPLICATES <- computeRelativeError(dataREPLICATES)
+```
+
+- Update the **Ratio** with the ploidy:
+```{r}
+dataREPLICATES$Ratio <- PLOIDY * dataREPLICATES$Ratio
+```
+
+---
+
+### Quality Control
+
+---
+
+
+- Keep only samples with relative error < 20 %.
+```{r}
+dataREPLICATES <- dataREPLICATES[dataREPLICATES$RelErr < 0.2,]
+```
+
+
+---
+
+### Box plot with the copy numbers by clone
+
+---
+
+
+```{r, message=F, warning=F, echo=F}
+dataREPLICATES$Group <- as.factor(dataREPLICATES$Group)
+
+library(ggplot2)
+p <- ggplot(dataREPLICATES, aes(x=Group, y=Ratio, fill=Marker))
+p <- p + geom_boxplot(outlier.shape=NA)
+p <- p + geom_hline(yintercept=3, color="grey", size=1)
+p <- p + geom_point(pch=19, position=position_jitterdodge(), size=1, color="red")
+p <- p + scale_fill_manual(values=c("gray","white"), labels = c("total", "on-target"))
+p <- p + xlab("Clone ID")
+p <- p + ylab("Copy Number")
+p <- p + theme_bw()
+p <- p + theme(legend.title = element_blank(), 
+               panel.grid.major = element_blank(), 
+               panel.grid.minor = element_blank(),
+               axis.title = element_text(size = 14))
+p
+```

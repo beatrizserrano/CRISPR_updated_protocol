@@ -1,0 +1,269 @@
+---
+title: "Data analysis for plates"
+output:
+  html_document: default
+---
+
+<br>
+
+This notebook predicts the off-target, heterozygous and homozygous samples for two different CRISPR experiments.
+
+<br>
+
+- Select values for global variables:
+
+    - *PLOIDY*: indicates the ploidy of the cell line studied.
+    - *EXCLUDED_SAMPLES*: substrings in the sample names that need to be excluded.
+    - *EXPERIMENTAL_CONDITION*: triple plasmid CRISPR approach (PPP), plasmid-donor combined with RNPs strategy (PRNP).
+    
+<br>
+
+
+```{r}
+PLOIDY <- 3
+
+EXCLUDED_SAMPLES <- c("U2OS", "Nup96", "NTC", "Comp")
+
+EXPERIMENTAL_CONDITION <- "PPP"
+#EXPERIMENTAL_CONDITION <- "PRNP"
+```
+
+- Load libraries and functions.
+```{r, warning=F, message=F}
+library(dplyr)
+source("functions.R")
+```
+
+---
+
+### Samples
+
+---
+
+- File paths for each experimental condition.
+
+```{r, echo=F}
+if (EXPERIMENTAL_CONDITION=="PPP")
+{
+  fullGFP.filename <- file.path(getwd(), "data", "plates", paste0("190513_allGFP_HK_Nup93_mEGFP_",EXPERIMENTAL_CONDITION,".csv"))
+  fullHDR.filename <- file.path(getwd(), "data", "plates", paste0("190520_HDR_HK_Nup93_mEGFP_",EXPERIMENTAL_CONDITION,".csv"))
+}
+if (EXPERIMENTAL_CONDITION=="PRNP")
+{
+  fullGFP.filename <- file.path(getwd(), "data", "plates", paste0("190513_allGFP_HK_Nup93_mEGFP_",EXPERIMENTAL_CONDITION,"-7AS-HiGFP",".csv"))
+  fullHDR.filename <- file.path(getwd(), "data", "plates", paste0("190516_HDR_HK_Nup93_mEGFP_",EXPERIMENTAL_CONDITION,"-7AS-HiGFP",".csv"))
+}
+```
+
+- Read and label data:
+```{r}
+fullGFP <- read.csv(fullGFP.filename, header=T, stringsAsFactors=F) 
+fullHDR <- read.csv(fullHDR.filename, header=T, stringsAsFactors=F) 
+fullGFP$Marker <- "GFP"
+fullHDR$Marker <- "HDR"
+```
+
+- Select relevant columns (**Sample**, **Positives**, **Negatives**, **TargetType**, **Marker**, **T7**, **singleColony**, **imaging**) and bind GFP and HDR data.
+
+```{r, echo=F}
+fullGFP <- fullGFP[c("Sample", "Positives", "Negatives", "TargetType", "Marker", "T7", "singleColony", "imaging")]
+fullHDR <- fullHDR[c("Sample", "Positives", "Negatives", "TargetType", "Marker", "T7", "singleColony", "imaging")]
+dataSAMPLES <- rbind(fullGFP, fullHDR)
+rm(fullGFP, fullHDR)
+```
+
+- Label the **TargetType** properly:
+```{r}
+dataSAMPLES[dataSAMPLES$TargetType=="Unknown",]$TargetType <- "TARGET"
+dataSAMPLES[dataSAMPLES$TargetType=="Reference",]$TargetType <- "REFERENCE"
+```
+
+- Compute **Ratio**, the Confidence Interval 95% (**MinCI95**, **MaxCI95**), relative error (**RelErr**) and theoretical standard deviation (**tSD**):
+```{r}
+dataSAMPLES$NegativeRate <- computeNegativeRate(dataSAMPLES)
+dataSAMPLES <- computeConfidenceInterval(dataSAMPLES)
+dataSAMPLES <- computeRelativeError(dataSAMPLES)
+dataSAMPLES$tSD <- (dataSAMPLES$Ratio * dataSAMPLES$RelErr) / 1.96
+```
+> Number of samples = `r nrow(dataSAMPLES)`
+
+- Remove samples with 0:
+```{r}
+dataSAMPLES <- dataSAMPLES[dataSAMPLES$Positives!=0,]
+```
+
+> Number of samples = `r nrow(dataSAMPLES)`
+
+- Remove samples with no values in T7:
+```{r}
+dataSAMPLES <- dataSAMPLES[!is.na(dataSAMPLES$T7),]
+```
+
+> Number of samples = `r nrow(dataSAMPLES)`
+
+- Remove samples with Relative Error > 20 %:
+```{r}
+dataSAMPLES <- dataSAMPLES[dataSAMPLES$RelErr < 0.2,]
+```
+
+> Number of samples = `r nrow(dataSAMPLES)`
+
+- How many samples per TargetType/Marker?
+```{r}
+knitr::kable(table(dataSAMPLES[c("Marker","TargetType")]))
+```
+
+---
+
+### Reference distribution
+
+---
+
+- Read reference data.
+
+```{r, echo=F}
+referenceHDR.filename <- file.path(getwd(),  "data", "plates", "reference", "190613_HDR_reference.csv")
+refSAMPLES.HDR <- read.csv(referenceHDR.filename, header=T, stringsAsFactors=F) 
+referenceGFP.filename <- file.path(getwd(),  "data", "plates", "reference", "190613_allGFP_reference.csv")
+refSAMPLES.GFP <- read.csv(referenceGFP.filename, header=T, stringsAsFactors=F) 
+refSAMPLES.HDR$Marker <- "GFP"
+refSAMPLES.GFP$Marker <- "HDR"
+refSAMPLES <- rbind(refSAMPLES.HDR, refSAMPLES.GFP)
+
+refSAMPLES <- convertToLongFormat(refSAMPLES)
+```
+
+- Label the **TargetType** of the reference sample.
+
+```{r, echo=F}
+refSAMPLES[refSAMPLES$TargetType=="Unknown",]$TargetType <- "TARGET"
+refSAMPLES[refSAMPLES$TargetType=="Reference",]$TargetType <- "REFERENCE"
+```
+
+- Remove samples with 0 positives:
+
+```{r}
+refSAMPLES <- refSAMPLES[refSAMPLES$Positives!=0,]
+``` 
+
+- Compute the **Negative Rate** of the reference sample:
+
+```{r}
+refSAMPLES$NegativeRate <- computeNegativeRate(refSAMPLES)
+```
+
+- Compute the **Ratio** and the **Confidence Interval** of the reference sample:
+
+```{r}
+refSAMPLES <- computeConfidenceInterval(refSAMPLES)
+```
+
+- Compute **Relative Error**:
+
+```{r}
+refSAMPLES <- computeRelativeError(refSAMPLES)
+```
+
+- Reference **means** and **SD** for both GFP and HDR dPCR assays:
+
+```{r}
+refSAMPLES_GFP_mean <- mean(refSAMPLES[refSAMPLES$Marker=="GFP",]$Ratio)
+refSAMPLES_GFP_sd <- sd(refSAMPLES[refSAMPLES$Marker=="GFP",]$Ratio)
+
+refSAMPLES_HDR_mean <- mean(refSAMPLES[refSAMPLES$Marker=="HDR",]$Ratio)
+refSAMPLES_HDR_sd <- sd(refSAMPLES[refSAMPLES$Marker=="HDR",]$Ratio)
+``` 
+
+---
+
+### Statistical Analysis
+
+---
+
+- Compute **Z-score**: 
+```{r}
+dataSAMPLES.GFP <- dataSAMPLES[dataSAMPLES$Marker=="GFP",]
+dataSAMPLES.HDR <- dataSAMPLES[dataSAMPLES$Marker=="HDR",]
+
+dataSAMPLES.GFP$Zscore <- (dataSAMPLES.GFP$Ratio - refSAMPLES_GFP_mean) / refSAMPLES_GFP_sd
+dataSAMPLES.HDR$Zscore <- (dataSAMPLES.HDR$Ratio - refSAMPLES_HDR_mean) / refSAMPLES_HDR_sd
+```
+
+- Corrected **p-values** for each sample (by marker) based on the Z-score.
+
+The function `pnorm` provides the integral of the normal curve from `-Inf` to `Z`. Since we are running a two-tailed test, the result should be multiplied by 2. To ensure a negative Z-score, the negative of the absolute value of Z will be computed.
+
+```{r}
+dataSAMPLES.GFP$Pvalue <- 2 * pnorm(-abs(dataSAMPLES.GFP$Zscore))
+dataSAMPLES.HDR$Pvalue <- 2 * pnorm(-abs(dataSAMPLES.HDR$Zscore))
+
+dataSAMPLES.GFP$correctedPvalue <- p.adjust(dataSAMPLES.GFP$Pvalue, method="fdr")
+dataSAMPLES.HDR$correctedPvalue <- p.adjust(dataSAMPLES.HDR$Pvalue, method="fdr")
+```
+
+- Selection of good sample candidates based on FDR > 0.1.
+```{r}
+dataSAMPLES.GFP$GoodSample <- dataSAMPLES.GFP$correctedPvalue >= 0.1
+dataSAMPLES.HDR$GoodSample <- dataSAMPLES.HDR$correctedPvalue >= 0.1
+```
+
+- Combine GFP and HDR data:
+```{r}
+dataSAMPLES <- merge (dataSAMPLES.GFP, dataSAMPLES.HDR, by=c("Sample", "TargetType", "T7", "singleColony", "imaging"), suffixes = c(".GFP", ".HDR"))
+```
+
+- Keep only the samples with more than 10000 droplets (positives + negatives):
+```{r}
+dataSAMPLES <- dataSAMPLES %>% mutate (nDroplets_GFP = Positives.GFP+Negatives.GFP) %>%
+                             mutate (nDroplets_HDR = Positives.HDR+Negatives.HDR) %>%
+                             filter (nDroplets_GFP > 10000 & nDroplets_HDR > 10000)
+```
+
+####  Predict outcome
+
+  - *AGREEMENT* if Zeta <= 2
+  - *WARNING* if Zeta $\in$ (2,3]
+  - *DISAGREEMENT* if Zeta > 3
+  
+```{r}
+dataSAMPLES$Zeta <- abs(dataSAMPLES$Ratio.GFP - dataSAMPLES$Ratio.HDR) / 
+                   sqrt(dataSAMPLES$tSD.GFP^2 + dataSAMPLES$tSD.HDR^2)
+
+dataSAMPLES <- mutate(dataSAMPLES, prediction = ifelse(Zeta <= 2, "AGREEMENT", 
+                                              ifelse ((Zeta > 2 & Zeta <= 3), "WARNING", "DISAGREEMENT")))
+```
+
+- Potential off-targets (**singleColony** is 1 when the sample is accepted):
+```{r}
+offtargetSamples <- dataSAMPLES %>% filter(prediction == "DISAGREEMENT" & (Ratio.GFP > Ratio.HDR) & (dataSAMPLES$singleColony == 1))
+``` 
+
+- Potential heterozygous:
+```{r}
+heteroSamples <- dataSAMPLES %>% filter(prediction == "AGREEMENT" & GoodSample.GFP == FALSE & GoodSample.HDR == FALSE & dataSAMPLES$singleColony == 1)
+``` 
+
+- Potential homozygous:
+```{r}
+homoSamples <- dataSAMPLES %>% filter(prediction == "AGREEMENT" & GoodSample.GFP == TRUE & GoodSample.HDR == TRUE & dataSAMPLES$singleColony == 1)
+``` 
+
+- Unclassified (excluded):
+```{r}
+classifiedSamples <- rbind (offtargetSamples, heteroSamples, homoSamples) 
+excludedSamples <- dataSAMPLES %>% filter(!Sample %in% classifiedSamples$Sample) %>% select(Sample, Ratio.GFP, Ratio.HDR, GoodSample.GFP, GoodSample.HDR, prediction, T7, singleColony)
+``` 
+
+> `r nrow(classifiedSamples)` samples classified and `r nrow(excludedSamples)` excluded.
+
+
+#### Pie chart of off-targets, heterozygous and homozygous clones
+
+
+```{r}
+pie_values <- c(nrow(offtargetSamples), nrow(heteroSamples), nrow(homoSamples))
+sampleSize <- sum(pie_values)
+
+pie_labels <- paste(c("off-target", "heterozygous", "homozygous"), " = " , pie_values)
+pie(pie_values, labels=pie_labels, main=paste("Exp. Condition:",EXPERIMENTAL_CONDITION, "\n", "Sample number =", sampleSize))
+```
