@@ -26,7 +26,7 @@ extractGroup <- function(df, assay)
   {
     df$Group <- unlist(lapply(strsplit(df$Sample, split = "[#]+"), function(vector) vector[2]))
   }
-  if (assay == "triple_color")
+  if (ASSAY == "triple_color" | ASSAY=="triple_color_2023_screen")
   {
     df$Group <- df$Sample
   }

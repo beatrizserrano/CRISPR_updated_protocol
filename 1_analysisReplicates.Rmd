@@ -26,7 +26,8 @@ PLOIDY <- 3
 
 # ASSAY <- "dual_color"
 # ASSAY <- "dual_color_all_tag_only"
-ASSAY <- "triple_color"
+# ASSAY <- "triple_color"
+ ASSAY <- "triple_color_2023_screen"
 
 CONTROL_LABELS <- c("U2OS", "Nup96", "Nup62", "NTC", "Comp", "wt", "HK-wt")
 ```
@@ -64,15 +65,24 @@ if (ASSAY == "dual_color_all_tag_only")
   dataREPLICATES$Marker <- "SNAP"
 }
 
-if (ASSAY == "triple_color")
+if (ASSAY == "triple_color" | ASSAY=="triple_color_2023_screen")
 {
-  rep.filename <- file.path(getwd(), "data", "biologicalReplicates", "200703_allGFP-HDR_U2OS-Nup93-mEGFP_PCRNP.csv")  
-  
-  inputData <- read.csv(rep.filename, header=T, stringsAsFactors=F)
-  # Get rid of concentrations ProcessedDilutionStock
+  if (ASSAY == "triple_color")
+  {
+    rep.filename <- file.path(getwd(), "data", "biologicalReplicates", "200703_allGFP-HDR_U2OS-Nup93-mEGFP_PCRNP.csv")  
+    inputData <- read.csv(rep.filename, header=T, stringsAsFactors=F)
+  } 
+  if (ASSAY == "triple_color_2023_screen")
+  { 
+    rep.filename <- file.path(getwd(), "data", "biologicalReplicates", "200618_triple_U2OS-PCRNP-Nup93-mEGFP_allClones.csv") 
+    inputData <- read.csv(rep.filename, header=T, stringsAsFactors=F, sep=";")
+    # Get rid of Separability score
+    inputData <- inputData[!(colnames(inputData) %in% grep("SeparabilityScore",colnames(inputData), value=T))]
+  }
+
+  # Get rid of concentrations and ProcessedDilutionStock
   inputData <- inputData[!(colnames(inputData) %in% grep("Concentration",colnames(inputData), value=T))]
   inputData <- inputData[!(colnames(inputData) %in% grep("ProcessedDilutionStock",colnames(inputData), value=T))]
-    
     
   columns_metadata <- c(1:6)
   columns_greenChannel <- grep("Green_Channel_", colnames(inputData))
@@ -80,17 +90,16 @@ if (ASSAY == "triple_color")
   columns_redChannel <- grep("Red_Channel_", colnames(inputData))
   
   dataREPLICATES_green <- cbind(inputData[,columns_metadata], inputData[,columns_greenChannel]) 
-  
   dataREPLICATES_green$Marker <- "GFP"
   dataREPLICATES_green$TargetType <- "Unknown"
-  
-  dataREPLICATES_red_GFP <- cbind(inputData[,columns_metadata], inputData[,columns_redChannel]) 
-  dataREPLICATES_red_GFP$Marker <- "GFP"
-  dataREPLICATES_red_GFP$TargetType <- "Reference"
-  
+
   dataREPLICATES_blue <- cbind(inputData[,columns_metadata], inputData[,columns_blueChannel]) 
   dataREPLICATES_blue$Marker <- "HDR"
   dataREPLICATES_blue$TargetType <- "Unknown"
+    
+  dataREPLICATES_red_GFP <- cbind(inputData[,columns_metadata], inputData[,columns_redChannel]) 
+  dataREPLICATES_red_GFP$Marker <- "GFP"
+  dataREPLICATES_red_GFP$TargetType <- "Reference"
   
   dataREPLICATES_red_HDR <- cbind(inputData[,columns_metadata], inputData[,columns_redChannel]) 
   dataREPLICATES_red_HDR$Marker <- "HDR"
@@ -116,7 +125,6 @@ if (ASSAY == "triple_color")
   dataREPLICATES <- rbind(dataREPLICATES_green, dataREPLICATES_red_GFP, dataREPLICATES_blue, dataREPLICATES_red_HDR)
   colnames(dataREPLICATES)[3] <- "Sample"
 }
-
 
 if (ASSAY=="dual_color" | ASSAY=="dual_color_all_tag_only")
 {
