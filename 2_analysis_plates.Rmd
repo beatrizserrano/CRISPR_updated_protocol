@@ -24,8 +24,9 @@ PLOIDY <- 3
 
 EXCLUDED_SAMPLES <- c("U2OS", "Nup96", "NTC", "Comp")
 
-EXPERIMENTAL_CONDITION <- "PPP"
+#EXPERIMENTAL_CONDITION <- "PPP"
 #EXPERIMENTAL_CONDITION <- "PRNP"
+EXPERIMENTAL_CONDITION <- "PCRNP"
 ```
 
 - Load libraries and functions.
@@ -53,12 +54,50 @@ if (EXPERIMENTAL_CONDITION=="PRNP")
   fullGFP.filename <- file.path(getwd(), "data", "plates", paste0("190513_allGFP_HK_Nup93_mEGFP_",EXPERIMENTAL_CONDITION,"-7AS-HiGFP",".csv"))
   fullHDR.filename <- file.path(getwd(), "data", "plates", paste0("190516_HDR_HK_Nup93_mEGFP_",EXPERIMENTAL_CONDITION,"-7AS-HiGFP",".csv"))
 }
+if (EXPERIMENTAL_CONDITION=="PCRNP")
+{
+  # This is needed only for the PCRNP case in which the data was acquired only in individual samples following the Stilla format and not in plates using BioRad.
+  stilla.filename <- file.path(getwd(), "data", "biologicalReplicates", "200618_triple_U2OS-PCRNP-Nup93-mEGFP_allClones.csv")
+  stilla.data <- read.csv(stilla.filename, check.names=F, header=T, stringsAsFactors=F, sep=";") 
+  
+  # Blue = FAM - allHDR
+  colnames(stilla.data)
+  stilla.data_allHDR <- stilla.data[c("SampleName", "Blue_Channel_NumberOfPositiveDroplets", "Blue_Channel_NumberOfNegativeDroplets")]
+  colnames(stilla.data_allHDR) <- c("Sample", "Positives", "Negatives")
+  #stilla.data_allHDR$Marker <- "HDR"
+  stilla.data_allHDR$TargetType <- "Unknown"
+  # Green = HEX - allGFP
+  stilla.data_allGFP <- stilla.data[c("SampleName", "Green_Channel_NumberOfPositiveDroplets", "Green_Channel_NumberOfNegativeDroplets")]
+  colnames(stilla.data_allGFP) <- c("Sample", "Positives", "Negatives")
+  #stilla.data_allGFP$Marker <- "GFP"
+  stilla.data_allGFP$TargetType <- "Unknown"
+  # Red = reference used to normalise
+  stilla.data_reference <- stilla.data[c("SampleName", "Red_Channel_NumberOfPositiveDroplets", "Red_Channel_NumberOfNegativeDroplets")]
+  colnames(stilla.data_reference) <- c("Sample", "Positives", "Negatives")
+  #stilla.data_reference$Marker <- "Cy5"
+  stilla.data_reference$TargetType <- "Reference"
+  
+  stilla.data_output_HDR <- rbind(stilla.data_allHDR, stilla.data_reference)
+  stilla.data_output_HDR$T7 <- "1"
+  stilla.data_output_HDR$singleColony <- "1"
+  stilla.data_output_HDR$imaging <- "1"
+  stilla.data_output_GFP <- rbind(stilla.data_allGFP, stilla.data_reference)
+  stilla.data_output_GFP$T7 <- "1"
+  stilla.data_output_GFP$singleColony <- "1"
+  stilla.data_output_GFP$imaging <- "1"
+
+  fullHDR.filename <- file.path(getwd(), "data", "plates","200618_triple_U2OS-PCRNP-Nup93-mEGFP_generatedHDRData.csv")
+  write.csv(stilla.data_output_HDR, file=fullHDR.filename)
+  fullGFP.filename <- file.path(getwd(), "data", "plates","200618_triple_U2OS-PCRNP-Nup93-mEGFP_generatedGFPData.csv")
+  write.csv(stilla.data_output_GFP, file=fullGFP.filename)
+  rm(stilla.data_reference,stilla.data_allHDR,stilla.data_allGFP,stilla.data,stilla.data_output_HDR,stilla.data_output_GFP)
+}
 ```
 
 - Read and label data:
 ```{r}
-fullGFP <- read.csv(fullGFP.filename, header=T, stringsAsFactors=F) 
-fullHDR <- read.csv(fullHDR.filename, header=T, stringsAsFactors=F) 
+fullGFP <- read.csv(fullGFP.filename, check.names=F, header=T, stringsAsFactors=F) 
+fullHDR <- read.csv(fullHDR.filename, check.names=F, header=T, stringsAsFactors=F) 
 fullGFP$Marker <- "GFP"
 fullHDR$Marker <- "HDR"
 ```
@@ -87,9 +126,19 @@ dataSAMPLES$tSD <- (dataSAMPLES$Ratio * dataSAMPLES$RelErr) / 1.96
 ```
 > Number of samples = `r nrow(dataSAMPLES)`
 
+- How many samples per TargetType/Marker?
+```{r}
+knitr::kable(table(dataSAMPLES[c("Marker","TargetType")]))
+```
+
 - Remove samples with 0:
 ```{r}
 dataSAMPLES <- dataSAMPLES[dataSAMPLES$Positives!=0,]
+```
+
+- How many samples per TargetType/Marker?
+```{r}
+knitr::kable(table(dataSAMPLES[c("Marker","TargetType")]))
 ```
 
 > Number of samples = `r nrow(dataSAMPLES)`
@@ -97,6 +146,11 @@ dataSAMPLES <- dataSAMPLES[dataSAMPLES$Positives!=0,]
 - Remove samples with no values in T7:
 ```{r}
 dataSAMPLES <- dataSAMPLES[!is.na(dataSAMPLES$T7),]
+```
+
+- How many samples per TargetType/Marker?
+```{r}
+knitr::kable(table(dataSAMPLES[c("Marker","TargetType")]))
 ```
 
 > Number of samples = `r nrow(dataSAMPLES)`
